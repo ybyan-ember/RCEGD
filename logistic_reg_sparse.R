@@ -15,7 +15,7 @@ n = 300
 ####sparsity####
 s = 5   
 ####percentage of outliers####
-epsilon = 0.1
+proportion = 0.1
 
 #####true parameter####
 theta_0 = rep(0,d)
@@ -25,11 +25,11 @@ for (i in 1:s){
 }
 
 ####inlier####
-n1 = n * (1-epsilon)
+n1 = n * (1-proportion)
 X1 = mvrnorm(n1, mu=rep(0, d), Sigma=diag(d))
 y1 = (as.matrix(sign(X1 %*% theta_0)) + rep(1,n1))/2
 
-lambda_max = max(eigen(diag(d))$val)
+
 
 ####outlier####
 n2 = n - n1
@@ -50,6 +50,9 @@ A2 = cbind(X2,y2)
 A_split = rbind(A1,A2) 
 A_split = A_split[sample(1:n),]
 
+C_hat = t(A_split[,1:d]) %*% A_split[,1:d]/n  #sample covariance matrix
+lambda_max = max(eigen(C_hat)$val)  #largest eigenvalue  
+
 ####Hard Thresholding####
 hardthresh = function(s=5, x=1:10){
   d = length(x)
@@ -60,7 +63,9 @@ hardthresh = function(s=5, x=1:10){
 }
 
 ####robust-and-efficient hard thresholding for sparse logistic regression####
-regd<-function(T=20, x, theta0=rep(0,d), k=20, p=2, sp=10){
+regd<-function(x, epsilon=0.0005, T=100, theta0=rep(0,d), k=20, p=2, sp=10){
+  #k is the number of block
+  #sp is the preset sparse number
   n = nrow(x);
   D = ncol(x)-1;
   a = floor(n/k);
@@ -71,7 +76,9 @@ regd<-function(T=20, x, theta0=rep(0,d), k=20, p=2, sp=10){
   G_re = rep(0,D); 
   l_regd = rep(0,T);
   eta = 1/lambda_max; 
-  for (i in 1:T){
+  delta = 1
+  i =1 
+  while (delta > epsilon){
     for (j in 1:k){
       w = x[(1+(j-1)*a):(j*a),1:D]
       y = x[(1+(j-1)*a):(j*a),D+1]
@@ -89,8 +96,16 @@ regd<-function(T=20, x, theta0=rep(0,d), k=20, p=2, sp=10){
     theta = theta - eta * G_re
     theta = hardthresh(s=sp,x=theta)
     l_regd[i] = sqrt(sum((theta - theta_0)^2))
+    if (i==1){
+      delta = l_regd[i]
+    }
+    else{
+      delta = abs(l_regd[i] - l_regd[i-1])
+    }
+    i = i + 1
+    out = list(theta=theta,l_regd=l_regd)
+    if (i>T) break
   }
-  out = list(theta=theta,l_regd=l_regd)
   return(out)
 }
 
@@ -108,7 +123,7 @@ centerPointSet = function(A){
   center = result$getValue(x)
 }
 
-rgd<-function(T = 20, x, theta0 = rep(0,d), b = 20, sp=10){
+rgd<-function(x, T = 20, epsilon=0.0005, theta0 = rep(0,d), b = 20, sp=10){
   n = nrow(x);
   D = ncol(x)-1;
   a = floor(n/b);
@@ -120,7 +135,9 @@ rgd<-function(T = 20, x, theta0 = rep(0,d), b = 20, sp=10){
   G_r = rep(0,D); 
   mu = array(0, dim = c(b,D));
   eta = 1/lambda_max;
-  for (i in 1:T){
+  delta = 1
+  i =1 
+  while (delta > epsilon){
     for (j in 1:b){
       u = x[(1+(j-1)*a):(j*a),1:D]
       v = x[(1+(j-1)*a):(j*a),D+1]
@@ -135,6 +152,15 @@ rgd<-function(T = 20, x, theta0 = rep(0,d), b = 20, sp=10){
     theta = theta - eta * G_r
     theta = hardthresh(s=sp,x=theta)
     l_rgd[i] = sqrt(sum((theta - theta_0)^2))
+    if (i==1){
+      delta = l_rgd[i]
+    }
+    else{
+      delta = abs(l_rgd[i] - l_rgd[i-1])
+    }
+    i = i + 1
+    out = list(theta=theta,l_rgd=l_rgd)
+    if (i>T) break
   }
   out = list(theta=theta,l_rgd=l_rgd)
   return(out)

@@ -1,8 +1,9 @@
-
-# 更改
-
 library(MASS)
 library(CVXR)
+
+####sample size####
+n = 1000
+
 ####parameter dimension####
 d = 10
 
@@ -17,7 +18,6 @@ for (i in 1:d){
     C[i,j] = rho^abs(i-j)
   }
 } 
-lambda_max = max(eigen(C)$val)
 
 ####inlier####
 generate_sample = function(n=500,s=1,rho = 0.5){
@@ -34,7 +34,7 @@ generate_sample = function(n=500,s=1,rho = 0.5){
   return(A)
 }
 
-####outlier####
+####outlier type I####
 generate_outlier = function(n=500, mu=rep(0,d), r_1=100){
   X = mvrnorm(n=n, mu=mu, Sigma=r_1*diag(d));
   y = -X%*%theta_0
@@ -42,7 +42,7 @@ generate_outlier = function(n=500, mu=rep(0,d), r_1=100){
   return(A)
 }
 
-####outlier_2####
+####outlier type II####
 generate_outlier_2 = function(n=500, mu=rep(0,d), r_1=100){
   X = mvrnorm(n=n, mu=mu, Sigma=r_1*diag(d));
   y = rep(0,n)
@@ -50,16 +50,22 @@ generate_outlier_2 = function(n=500, mu=rep(0,d), r_1=100){
   return(A)
 }
 
-####generate samples####
-A_1 = generate_sample(n=900,s=0.1)
-A_2 = generate_outlier(n=50,r_1=100)
-A_3 = generate_outlier_2(n=50,r_1=100)
+####proportion of outliers####
+proportion = 0.1
+
+####generate samples (for one iteration)####
+A_1 = generate_sample(n=(n*(1-proportion)),s=0.1)
+A_2 = generate_outlier(n=(n*proportion/2),r_1=(d^2))
+A_3 = generate_outlier_2(n=(n*proportion/2),r_1=(d^3))
 A = rbind(A_1,A_2,A_3)
-A_split = A[sample(1:1000),]
+A_split = A[sample(1:n),]
+
+C_hat = t(A_split[,1:d]) %*% A_split[,1:d]/n  #sample covariance matrix
+lambda_max = max(eigen(C_hat)$val)  #largest eigenvalue  
 
 
 ####robust-and-efficient gradient descent for linear regression####
-regd<-function(T=20, x, theta0=rep(0,d), k=50, p=2){
+regd<-function(x, epsilon=0.0005, T=100, theta0=rep(0,d), k=50, p=2){
   #k is the number of block
   n = nrow(x);
   D = ncol(x)-1;
@@ -70,8 +76,10 @@ regd<-function(T=20, x, theta0=rep(0,d), k=50, p=2){
   theta = theta0; 
   G_re = rep(0,D); 
   l_regd = rep(0,T);
-  eta = 1/lambda_max 
-  for (i in 1:T){
+  eta = 1/lambda_max
+  delta = 1
+  i =1 
+  while (delta > epsilon){
     for (j in 1:k){
       w = x[(1+(j-1)*a):(j*a),1:D]
       y = x[(1+(j-1)*a):(j*a),D+1]
@@ -88,10 +96,20 @@ regd<-function(T=20, x, theta0=rep(0,d), k=50, p=2){
     }
     theta = theta - eta * G_re
     l_regd[i] = sqrt(sum((theta - theta_0)^2))
+    if (i==1){
+      delta = l_regd[i]
+    }
+    else{
+      delta = abs(l_regd[i] - l_regd[i-1])
+    }
+    i = i + 1
+    out = list(theta=theta,l_regd=l_regd)
+    if (i>T) break
   }
-  out = list(theta=theta,l_regd=l_regd)
   return(out)
 }
+
+
 
 
 ####MOM-based gradient descent for linear regression####
@@ -109,7 +127,7 @@ centerPointSet = function(A){
   center = result$getValue(x)
 }
 
-rgd<-function(T = 20, x, theta0 = rep(0,d), b = 20){
+rgd<-function(x, T = 20, epsilon=0.0005, theta0 = rep(0,d), b = 20){
   n = nrow(x);
   D = ncol(x)-1;
   a = floor(n/b);
@@ -121,7 +139,9 @@ rgd<-function(T = 20, x, theta0 = rep(0,d), b = 20){
   G_r = rep(0,D); 
   mu = array(0, dim = c(b,D));
   eta = 1/lambda_max;
-  for (i in 1:T){
+  delta = 1
+  i =1 
+  while (delta > epsilon){
     for (j in 1:b){
       u = x[(1+(j-1)*a):(j*a),1:D]
       v = x[(1+(j-1)*a):(j*a),D+1]
@@ -135,11 +155,18 @@ rgd<-function(T = 20, x, theta0 = rep(0,d), b = 20){
     G_r = centerPointSet(t(mu))
     theta = theta - eta * G_r
     l_rgd[i] = sqrt(sum((theta - theta_0)^2))
-    print(l_rgd[i])
+    if (i==1){
+      delta = l_rgd[i]
+    }
+    else{
+      delta = abs(l_rgd[i] - l_rgd[i-1])
+    }
+    i = i + 1
+    out = list(theta=theta,l_rgd=l_rgd)
+    if (i>T) break
   }
   out = list(theta=theta,l_rgd=l_rgd)
   return(out)
-  #return(theta)
 }
 
 
